@@ -156,8 +156,8 @@ const startBot = async () => {
 
       puppeteer: {
             headless: true,
-            // Perbaikan jalur Chrome untuk Buildpack Resmi Heroku
-            executablePath: process.env.GOOGLE_CHROME_BIN || process.env.GOOGLE_CHROME_SHIM || '/usr/bin/google-chrome-stable',
+            // Jontewks otomatis membuat perintah ini tersedia
+            executablePath: 'google-chrome-stable',
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
