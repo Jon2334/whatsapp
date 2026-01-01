@@ -154,10 +154,10 @@ const startBot = async () => {
             backupSyncIntervalMs: 300000 
         }) : new LocalAuth({ clientId: "jonkris-local" }),
 
-    puppeteer: {
+   puppeteer: {
             headless: true,
-            // Perbaikan: Tambahkan '-stable' di belakang karena itu nama asli filenya
-            executablePath: '/app/.apt/usr/bin/google-chrome-stable',
+            // HAPUS "-stable". File aslinya cuma "google-chrome"
+            executablePath: '/app/.apt/usr/bin/google-chrome',
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
