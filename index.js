@@ -147,12 +147,11 @@ const startBot = async () => {
     }
 
     // Konfigurasi Client
-    const client = new Client({
-        // Logika Pintar: Jika DB Konek pakai RemoteAuth, jika tidak pakai LocalAuth
+   const client = new Client({
         authStrategy: store ? new RemoteAuth({
             clientId: 'jonkris-session',
             store: store,
-            backupSyncIntervalMs: 300000 // Backup tiap 5 menit
+            backupSyncIntervalMs: 300000 
         }) : new LocalAuth({ clientId: "jonkris-local" }),
 
         puppeteer: {
