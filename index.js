@@ -147,24 +147,30 @@ const startBot = async () => {
         console.log('⚠️ MONGO_URI tidak ditemukan. Menggunakan LocalAuth.');
     }
 
-  const client = new Client({
-  authStrategy: new RemoteAuth({
-    clientId: 'jonkris-session',
-    store,
-    backupSyncIntervalMs: 300000
-  }),
+    // Konfigurasi Client
+   const client = new Client({
+        authStrategy: store ? new RemoteAuth({
+            clientId: 'jonkris-session',
+            store: store,
+            backupSyncIntervalMs: 300000 
+        }) : new LocalAuth({ clientId: "jonkris-local" }),
+
   puppeteer: {
-    headless: true,
-    executablePath: process.env.GOOGLE_CHROME_BIN,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--single-process'
-    ]
-  }
-});
+            headless: true,
+            // KITA PAKAI VARIABEL OTOMATIS DARI BUILDPACK NO. 1
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH, 
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process', 
+                '--disable-gpu'
+            ]
+        }
+    });
 
     client.on('qr', (qr) => { 
         console.log('📱 SCAN QR CODE SEKARANG DI TERMINAL:'); 
