@@ -1,3 +1,4 @@
+const fs = require('fs'); // <--- TAMBAHKAN INI DI BARIS PALING ATAS
 const { Client, RemoteAuth, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const express = require('express');
@@ -156,8 +157,30 @@ const startBot = async () => {
 
    puppeteer: {
             headless: true,
-            // HAPUS "-stable". File aslinya cuma "google-chrome"
-            executablePath: '/app/.apt/usr/bin/google-chrome',
+            // SCRIPT PENCARI CHROME OTOMATIS
+            executablePath: (() => {
+                // Daftar kemungkinan lokasi Chrome di Heroku
+                const paths = [
+                    process.env.GOOGLE_CHROME_BIN,
+                    process.env.GOOGLE_CHROME_SHIM,
+                    process.env.PUPPETEER_EXECUTABLE_PATH,
+                    '/app/.apt/usr/bin/google-chrome',
+                    '/app/.apt/usr/bin/google-chrome-stable',
+                    '/usr/bin/google-chrome',
+                    '/usr/bin/google-chrome-stable'
+                ];
+                
+                // Cek satu per satu
+                for (const p of paths) {
+                    if (p && fs.existsSync(p)) {
+                        console.log(`[INFO] Chrome ditemukan di: ${p}`);
+                        return p;
+                    }
+                }
+                console.log("[ERROR] Chrome tidak ketemu! Pastikan Buildpack Jontewks terinstall.");
+                return null;
+            })(),
+            
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
