@@ -154,10 +154,10 @@ const startBot = async () => {
             backupSyncIntervalMs: 300000 
         }) : new LocalAuth({ clientId: "jonkris-local" }),
 
-     puppeteer: {
+    puppeteer: {
             headless: true,
-            // KITA PAKSA PAKAI ALAMAT ASLI DARI BUILD PACK JONTEWKS
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/app/.apt/usr/bin/google-chrome',
+            // Perbaikan: Tambahkan '-stable' di belakang karena itu nama asli filenya
+            executablePath: '/app/.apt/usr/bin/google-chrome-stable',
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
