@@ -147,52 +147,24 @@ const startBot = async () => {
         console.log('⚠️ MONGO_URI tidak ditemukan. Menggunakan LocalAuth.');
     }
 
-    // Konfigurasi Client
-   const client = new Client({
-        authStrategy: store ? new RemoteAuth({
-            clientId: 'jonkris-session',
-            store: store,
-            backupSyncIntervalMs: 300000 
-        }) : new LocalAuth({ clientId: "jonkris-local" }),
-
-   puppeteer: {
-            headless: true,
-            // SCRIPT PENCARI CHROME OTOMATIS
-            executablePath: (() => {
-                // Daftar kemungkinan lokasi Chrome di Heroku
-                const paths = [
-                    process.env.GOOGLE_CHROME_BIN,
-                    process.env.GOOGLE_CHROME_SHIM,
-                    process.env.PUPPETEER_EXECUTABLE_PATH,
-                    '/app/.apt/usr/bin/google-chrome',
-                    '/app/.apt/usr/bin/google-chrome-stable',
-                    '/usr/bin/google-chrome',
-                    '/usr/bin/google-chrome-stable'
-                ];
-                
-                // Cek satu per satu
-                for (const p of paths) {
-                    if (p && fs.existsSync(p)) {
-                        console.log(`[INFO] Chrome ditemukan di: ${p}`);
-                        return p;
-                    }
-                }
-                console.log("[ERROR] Chrome tidak ketemu! Pastikan Buildpack Jontewks terinstall.");
-                return null;
-            })(),
-            
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--single-process', 
-                '--disable-gpu'
-            ]
-        }
-    });
+  const client = new Client({
+  authStrategy: new RemoteAuth({
+    clientId: 'jonkris-session',
+    store,
+    backupSyncIntervalMs: 300000
+  }),
+  puppeteer: {
+    headless: true,
+    executablePath: process.env.GOOGLE_CHROME_BIN,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--single-process'
+    ]
+  }
+});
 
     client.on('qr', (qr) => { 
         console.log('📱 SCAN QR CODE SEKARANG DI TERMINAL:'); 
