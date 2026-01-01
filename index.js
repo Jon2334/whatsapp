@@ -156,7 +156,8 @@ const startBot = async () => {
 
         puppeteer: {
             headless: true,
-            executablePath: process.env.GOOGLE_CHROME_BIN || process.env.GOOGLE_CHROME_SHIM || '/usr/bin/google-chrome',
+            // 🔥 INI BAGIAN YANG DIPERBAIKI UNTUK BUILD PACK JONTEWKS 🔥
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
