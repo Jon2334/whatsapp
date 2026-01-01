@@ -156,6 +156,7 @@ const startBot = async () => {
 
         puppeteer: {
             headless: true,
+            executablePath: process.env.GOOGLE_CHROME_BIN || process.env.GOOGLE_CHROME_SHIM || '/usr/bin/google-chrome',
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
