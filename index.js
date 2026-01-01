@@ -156,20 +156,17 @@ const startBot = async () => {
         }) : new LocalAuth({ clientId: "jonkris-local" }),
 
   puppeteer: {
-            headless: true,
-            // KITA PAKAI VARIABEL OTOMATIS DARI BUILDPACK NO. 1
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH, 
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--single-process', 
-                '--disable-gpu'
-            ]
-        }
+    headless: true,
+    executablePath: process.env.GOOGLE_CHROME_BIN,
+    args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process'
+    ]
+}
+
     });
 
     client.on('qr', (qr) => { 
