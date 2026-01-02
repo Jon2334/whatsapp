@@ -4,7 +4,16 @@ const express = require('express');
 const Groq = require('groq-sdk');
 const Jimp = require('jimp');
 const mongoose = require('mongoose');
-const { MongoStore } = require('wwebjs-mongo');
+
+// Cek apakah wwebjs-mongo tersedia
+let MongoStore;
+try {
+    MongoStore = require('wwebjs-mongo').MongoStore;
+    console.log('✅ wwebjs-mongo loaded successfully');
+} catch (error) {
+    console.warn('⚠️ wwebjs-mongo not found, using LocalAuth');
+    MongoStore = null;
+}
 
 // ==============================================
 // ⚙️ KONFIGURASI UTAMA
@@ -27,14 +36,9 @@ const PORT = process.env.PORT || 3000;
 
 const HEADER_IMAGE_URL = 'https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1000&auto=format&fit=crop';
 
-const REACTION_LIST = [
-    '🔥', '✨', '😂', '🤣', '❤️', '😎', '🤯', '😱', '🥳', '😡', '😭', '🥺', '🤪', '😇', '🤫', '🤔', '🙄', '😤', '🤤', '🤡', '👻', '💀', '👽', '🤖',
-    '👍', '👎', '✌️', '🤞', '🤟', '🤙', '🤝', '🙏', '💪', '🧠', '👀', '👁️', '🤦‍♂️', '🤷‍♂️',
-    '🚀', '⭐', '🌟', '⚡', '💣', '💥', '💯', '💢', '💤', '💦', '🍆', '🍑', '🍕', '🍔', '🍺', '🗿', '🗽', '💎', '🔮', '🦠',
-    '✅', '❌', '⚠️', '⛔', '🆗', '🆒', '🚩', '🏁'
-];
+const REACTION_LIST = ['🔥', '✨', '😂', '🤣', '❤️', '😎'];
 
-// Inisialisasi Groq dengan error handling
+// Inisialisasi Groq
 let groq;
 try {
     groq = new Groq({ apiKey: GROQ_API_KEY });
@@ -55,21 +59,20 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Health check endpoint untuk Heroku
+// Health check endpoint
 app.get('/health', (req, res) => {
     res.status(200).json({ 
         status: 'OK', 
         bot: NAMA_BOT,
         timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        memory: process.memoryUsage()
+        uptime: process.uptime()
     });
 });
 
 // Dashboard utama
 app.get('/', (req, res) => {
     const waktu = getWaktuIndonesia(); 
-    const mongoStatus = MONGO_URI ? '✅ Connected' : '⚠️ LocalAuth';
+    const mongoStatus = MONGO_URI ? '✅ Configured' : '⚠️ Not Configured';
     const groqStatus = GROQ_API_KEY ? '✅ Active' : '❌ Missing';
     
     res.send(`
@@ -82,160 +85,153 @@ app.get('/', (req, res) => {
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { 
-                background-color: #050505; 
+                background-color: #0a0a0a; 
                 color: #ffffff; 
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
                 display: flex; 
                 justify-content: center; 
                 align-items: center; 
                 min-height: 100vh; 
                 margin: 0; 
-                background-image: 
-                    linear-gradient(rgba(20, 20, 20, 0.9), rgba(20, 20, 20, 0.9)), 
-                    url('${HEADER_IMAGE_URL}'); 
-                background-size: cover; 
-                background-position: center; 
-                background-attachment: fixed;
                 padding: 20px;
             }
             .card { 
-                background: rgba(20, 25, 30, 0.95); 
-                border: 1px solid #333; 
-                border-radius: 20px; 
+                background: rgba(15, 20, 25, 0.95); 
+                border: 1px solid #2a2a2a; 
+                border-radius: 16px; 
                 width: 100%; 
                 max-width: 400px; 
                 overflow: hidden; 
-                box-shadow: 0 0 40px rgba(0, 255, 100, 0.1); 
+                box-shadow: 0 8px 32px rgba(0, 210, 106, 0.1); 
                 text-align: center; 
                 backdrop-filter: blur(10px); 
-                animation: fadeIn 0.5s ease;
             }
-            @keyframes fadeIn {
-                from { opacity: 0; transform: translateY(-20px); }
-                to { opacity: 1; transform: translateY(0); }
-            }
-            .header-img { 
-                width: 100%; 
-                height: 150px; 
-                object-fit: cover; 
-                border-bottom: 3px solid #00d26a; 
+            .header { 
+                background: linear-gradient(135deg, #00d26a 0%, #00b8ff 100%);
+                padding: 30px 20px;
+                color: white;
             }
             .content { 
                 padding: 25px; 
             }
             h1 { 
-                font-size: 26px; 
+                font-size: 24px; 
                 margin: 0 0 10px 0; 
                 color: #fff; 
-                text-transform: uppercase; 
-                letter-spacing: 2px; 
-                background: linear-gradient(90deg, #00d26a, #00b8ff);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
+            }
+            .status-badge { 
+                display: inline-block; 
+                padding: 6px 16px; 
+                border-radius: 20px; 
+                background: rgba(0, 210, 106, 0.2); 
+                color: #00d26a; 
+                font-size: 12px; 
+                font-weight: bold; 
+                margin-bottom: 20px;
+                border: 1px solid rgba(0, 210, 106, 0.3);
             }
             .info-box { 
-                background: #1f1f1f; 
+                background: #1a1a1a; 
                 padding: 15px; 
                 border-radius: 12px; 
                 margin: 20px 0; 
-                border: 1px solid #333; 
+                border: 1px solid #2a2a2a; 
                 text-align: left;
             }
             .greet { 
-                font-size: 18px; 
+                font-size: 16px; 
                 font-weight: bold; 
                 color: #00d26a; 
                 margin-bottom: 5px; 
             }
-            .date { 
+            .time { 
                 font-size: 14px; 
                 color: #aaa; 
-                font-weight: 500; 
-                margin-bottom: 5px;
-            }
-            .clock { 
-                font-size: 16px; 
-                color: #00b8ff; 
-                font-weight: bold; 
-                font-family: monospace;
-            }
-            .status { 
-                display: inline-block; 
-                padding: 5px 15px; 
-                border-radius: 50px; 
-                background: rgba(0, 210, 106, 0.1); 
-                border: 1px solid #00d26a; 
-                color: #00d26a; 
-                font-size: 12px; 
-                font-weight: bold; 
-                margin-bottom: 15px;
             }
             .service-status {
                 display: flex;
                 justify-content: space-between;
                 margin: 10px 0;
-                padding: 8px;
+                padding: 10px;
                 background: rgba(255,255,255,0.05);
                 border-radius: 8px;
-                font-size: 12px;
+                font-size: 13px;
             }
             .btn-group { 
                 display: flex; 
                 flex-direction: column; 
-                gap: 10px; 
+                gap: 12px; 
                 margin-top: 20px; 
             }
             .btn { 
-                padding: 12px; 
+                padding: 14px; 
                 border-radius: 10px; 
                 text-decoration: none; 
-                font-weight: bold; 
+                font-weight: 600; 
                 font-size: 14px; 
-                transition: 0.3s; 
-                text-align: center;
-            }
-            .btn:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+                transition: all 0.3s ease;
+                border: none;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
             }
             .btn-owner { 
                 background: #007bff; 
                 color: white; 
             }
+            .btn-owner:hover { 
+                background: #0056b3; 
+            }
             .btn-donate { 
                 background: #ffc107; 
                 color: #000; 
+            }
+            .btn-donate:hover { 
+                background: #e0a800; 
             }
             .btn-status {
                 background: #6c757d;
                 color: white;
             }
-            .footer { 
-                margin-top: 20px; 
-                font-size: 11px; 
-                color: #555; 
+            .btn-status:hover {
+                background: #545b62;
             }
-            .qr-placeholder {
+            .footer { 
+                margin-top: 25px; 
+                font-size: 11px; 
+                color: #666; 
+                text-align: center;
+            }
+            .qr-info {
                 background: rgba(255,255,255,0.05);
                 padding: 15px;
                 border-radius: 10px;
                 margin: 15px 0;
                 font-size: 12px;
                 color: #888;
+                border-left: 3px solid #00d26a;
             }
         </style>
     </head>
     <body>
         <div class="card">
-            <img src="${HEADER_IMAGE_URL}" class="header-img" alt="Header Image">
-            <div class="content">
+            <div class="header">
                 <h1>${NAMA_BOT}</h1>
-                <div class="status">● SYSTEM ONLINE</div>
+                <div>WhatsApp AI Assistant Bot</div>
+            </div>
+            <div class="content">
+                <div class="status-badge">● SYSTEM ONLINE</div>
                 
                 <div class="info-box">
-                    <div class="greet">${waktu.sapaan}, Bos!</div>
-                    <div class="date">${waktu.tanggalLengkap}</div>
-                    <div class="clock">${waktu.jam}</div>
+                    <div class="greet">${waktu.sapaan}</div>
+                    <div class="time">${waktu.tanggalLengkap} • ${waktu.jam}</div>
+                </div>
+                
+                <div class="qr-info">
+                    📱 <strong>Scan QR Code di Terminal</strong><br>
+                    Buka WhatsApp → Settings → Linked Devices
                 </div>
                 
                 <div class="service-status">
@@ -247,18 +243,20 @@ app.get('/', (req, res) => {
                     <span>${groqStatus}</span>
                 </div>
                 
-                <div class="qr-placeholder">
-                    📱 Scan QR Code di terminal untuk login WhatsApp
-                </div>
-                
                 <div class="btn-group">
-                    <a href="https://wa.me/${NOMOR_OWNER}" class="btn btn-owner" target="_blank">👤 Chat Owner</a>
-                    <a href="${LINK_DONASI}" class="btn btn-donate" target="_blank">☕ Trakteer Donasi</a>
-                    <a href="/health" class="btn btn-status">🩺 Health Check</a>
+                    <a href="https://wa.me/${NOMOR_OWNER}" class="btn btn-owner" target="_blank">
+                        <span>👤</span> Chat Owner
+                    </a>
+                    <a href="${LINK_DONASI}" class="btn btn-donate" target="_blank">
+                        <span>☕</span> Support Bot
+                    </a>
+                    <a href="/health" class="btn btn-status">
+                        <span>🩺</span> Health Check
+                    </a>
                 </div>
                 
                 <div class="footer">
-                    Port: ${PORT} | Node: ${process.version} | Env: ${process.env.NODE_ENV || 'development'}
+                    Port ${PORT} • Node.js ${process.version} • ${process.env.NODE_ENV || 'production'}
                 </div>
             </div>
         </div>
@@ -266,22 +264,30 @@ app.get('/', (req, res) => {
         <script>
             // Auto refresh waktu
             function updateTime() {
-                const clockElement = document.querySelector('.clock');
-                if (clockElement) {
+                const timeElement = document.querySelector('.time');
+                if (timeElement) {
                     const now = new Date();
-                    const timeString = now.toLocaleTimeString('id-ID', { 
-                        timeZone: 'Asia/Jakarta',
-                        hour12: false,
+                    const options = { 
+                        weekday: 'long',
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric',
                         hour: '2-digit',
                         minute: '2-digit',
-                        second: '2-digit'
-                    });
-                    clockElement.textContent = timeString + ' WIB';
+                        second: '2-digit',
+                        timeZone: 'Asia/Jakarta'
+                    };
+                    timeElement.textContent = now.toLocaleDateString('id-ID', options) + ' WIB';
                 }
             }
             
             setInterval(updateTime, 1000);
             updateTime();
+            
+            // Auto refresh halaman setiap 30 detik untuk update status
+            setTimeout(() => {
+                window.location.reload();
+            }, 30000);
         </script>
     </body>
     </html>
@@ -296,27 +302,20 @@ async function tanyaAI(pertanyaan) {
             messages: [
                 { 
                     role: "system", 
-                    content: `Kamu adalah ${NAMA_BOT}, asisten ${NAMA_OWNER}. 
-                    Jawab singkat, gaul, & seru maksimal 3 paragraf. 
-                    Gunakan emoji yang relevan.` 
+                    content: `Kamu adalah ${NAMA_BOT}, asisten WhatsApp. 
+                    Jawab dengan singkat, ramah, dan membantu. 
+                    Gunakan bahasa Indonesia yang mudah dipahami.` 
                 },
                 { role: "user", content: pertanyaan }
             ],
             model: "llama-3.3-70b-versatile",
             temperature: 0.7,
-            max_tokens: 512,
-            timeout: 30000 // 30 detik timeout
+            max_tokens: 500,
         });
-        return chatCompletion.choices[0]?.message?.content || "🤖 Otak bot lagi loading...";
+        return chatCompletion.choices[0]?.message?.content || "🤖 Maaf, saya sedang sibuk. Coba lagi nanti ya!";
     } catch (error) {
         console.error("AI Error:", error.message);
-        if (error.status === 429) {
-            return "⚠️ Limit AI hari ini habis, coba lagi besok ya!";
-        }
-        if (error.code === 'ETIMEDOUT') {
-            return "⏰ Waktu request AI habis, coba pertanyaan yang lebih singkat.";
-        }
-        return "⚠️ Sedang gangguan jaringan AI, coba lagi nanti.";
+        return "⚠️ Maaf, AI sedang gangguan. Coba lagi nanti!";
     }
 }
 
@@ -338,54 +337,53 @@ function getWaktuIndonesia() {
     return {
         sapaan: sapaan,
         tanggalLengkap: `${hariArr[indonesiaTime.getDay()]}, ${indonesiaTime.getDate()} ${bulanArr[indonesiaTime.getMonth()]} ${indonesiaTime.getFullYear()}`,
-        jam: `${String(indonesiaTime.getHours()).padStart(2,'0')}:${String(indonesiaTime.getMinutes()).padStart(2,'0')}:${String(indonesiaTime.getSeconds()).padStart(2,'0')} WIB`
+        jam: `${String(indonesiaTime.getHours()).padStart(2,'0')}:${String(indonesiaTime.getMinutes()).padStart(2,'0')} WIB`
     };
 }
 
 // ==============================================
-// 🚀 START DATABASE & BOT
+// 🚀 START BOT
 // ==============================================
-console.log('🔄 Memulai WhatsApp Bot...');
+console.log('🚀 Memulai WhatsApp Bot...');
 console.log('🤖 Nama Bot:', NAMA_BOT);
 console.log('👤 Owner:', NAMA_OWNER);
 console.log('🌐 Port:', PORT);
 
 const startBot = async () => {
-    let store;
+    let store = null;
+    let mongoConnected = false;
     
-    // Koneksi MongoDB
-    if (MONGO_URI) {
+    // Koneksi MongoDB jika tersedia
+    if (MONGO_URI && MongoStore) {
         try {
             console.log('🔗 Menghubungkan ke MongoDB...');
-            mongoose.set('strictQuery', true);
+            
+            mongoose.set('strictQuery', false);
             
             await mongoose.connect(MONGO_URI, {
                 useNewUrlParser: true,
                 useUnifiedTopology: true,
-                serverSelectionTimeoutMS: 10000,
-                socketTimeoutMS: 45000,
+                serverSelectionTimeoutMS: 5000,
             });
             
-            // Test connection
-            mongoose.connection.on('connected', () => {
-                console.log('✅ MongoDB Connected!');
-            });
+            mongoConnected = true;
+            console.log('✅ MongoDB Connected!');
             
-            mongoose.connection.on('error', (err) => {
-                console.error('❌ MongoDB Connection Error:', err);
-            });
-            
-            store = new MongoStore({ 
-                mongoose: mongoose,
-                collectionName: 'whatsapp_sessions'
-            });
+            // Buat store dengan error handling
+            try {
+                store = new MongoStore({ mongoose: mongoose });
+            } catch (storeError) {
+                console.warn('⚠️ Gagal membuat MongoStore:', storeError.message);
+                console.log('⚠️ Menggunakan LocalAuth sebagai fallback');
+                store = null;
+            }
             
         } catch (err) {
             console.error('❌ Gagal koneksi MongoDB:', err.message);
-            console.log('⚠️ Beralih ke LocalAuth');
+            console.log('⚠️ Menggunakan LocalAuth');
         }
     } else {
-        console.log('ℹ️ MONGO_URI tidak ditemukan, menggunakan LocalAuth');
+        console.log('ℹ️ MongoDB tidak dikonfigurasi, menggunakan LocalAuth');
     }
 
     // Konfigurasi Puppeteer untuk Heroku
@@ -396,68 +394,67 @@ const startBot = async () => {
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--disable-gpu',
-        '--disable-software-rasterizer',
         '--single-process',
-        '--disable-features=site-per-process'
+        '--disable-gpu'
     ];
 
-    // Path Chrome untuk Heroku
+    // Gunakan Chrome yang tersedia di Heroku
     const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || 
                          (process.env.NODE_ENV === 'production' ? 
-                          '/app/.apt/usr/bin/google-chrome' : undefined);
+                          '/usr/bin/google-chrome-stable' : undefined);
 
     console.log('🚀 Inisialisasi WhatsApp Client...');
 
     // Konfigurasi Client WhatsApp
-    const client = new Client({
-        authStrategy: store ? new RemoteAuth({
-            clientId: 'jonkris-whatsapp-bot',
-            store: store,
-            backupSyncIntervalMs: 600000,
-            dataPath: './.wwebjs_auth'
-        }) : new LocalAuth({ 
-            clientId: "jonkris-local",
-            dataPath: './.wwebjs_auth'
-        }),
-
+    const clientOptions = {
         puppeteer: {
             headless: 'new',
             executablePath: executablePath,
             args: puppeteerArgs,
-            ignoreDefaultArgs: ['--disable-extensions']
-        },
-        webVersionCache: {
-            type: 'remote',
-            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
         }
-    });
+    };
+
+    // Tambahkan auth strategy jika store tersedia
+    if (store && mongoConnected) {
+        clientOptions.authStrategy = new RemoteAuth({
+            clientId: 'jonkris-bot',
+            store: store,
+            backupSyncIntervalMs: 300000,
+        });
+    } else {
+        clientOptions.authStrategy = new LocalAuth({
+            clientId: 'jonkris-local',
+            dataPath: './.wwebjs_auth'
+        });
+    }
+
+    const client = new Client(clientOptions);
 
     // Event Handlers
     client.on('qr', (qr) => { 
-        console.log('📱 SCAN QR CODE DI BAWAH INI:');
-        console.log('='.repeat(50));
+        console.log('\n📱 ============================================');
+        console.log('📱 SCAN QR CODE DI BAWAH INI UNTUK LOGIN:');
+        console.log('📱 ============================================');
         qrcode.generate(qr, { small: true });
-        console.log('='.repeat(50));
-        console.log('💡 Scan QR code di atas dengan WhatsApp > Menu > Linked Devices');
+        console.log('📱 ============================================');
+        console.log('💡 Cara Scan:');
+        console.log('1. Buka WhatsApp di HP');
+        console.log('2. Settings → Linked Devices → Link a Device');
+        console.log('3. Scan QR code di atas');
+        console.log('📱 ============================================\n');
     });
 
     client.on('ready', () => { 
-        console.clear(); 
-        console.log(`✨ ${'='.repeat(50)}`);
-        console.log(`✅ ${NAMA_BOT} SUDAH ONLINE!`);
-        console.log(`📱 WhatsApp: ${client.info.pushname}`);
-        console.log(`👤 Number: ${client.info.wid.user}`);
-        console.log(`🎯 Siap melayani!`);
-        console.log(`✨ ${'='.repeat(50)}`);
-    });
-
-    client.on('remote_session_saved', () => {
-        console.log('💾 Session saved to database');
+        console.log('\n✨ ============================================');
+        console.log(`✨ ${NAMA_BOT} BERHASIL DIJALANKAN!`);
+        console.log(`✨ WhatsApp: ${client.info.pushname}`);
+        console.log(`✨ Nomor: ${client.info.wid.user}`);
+        console.log(`✨ Siap melayani!`);
+        console.log('✨ ============================================\n');
     });
 
     client.on('authenticated', () => {
-        console.log('🔐 Authenticated successfully');
+        console.log('✅ Authenticated successfully');
     });
 
     client.on('auth_failure', (msg) => {
@@ -466,99 +463,48 @@ const startBot = async () => {
 
     client.on('disconnected', (reason) => {
         console.log('❌ Disconnected:', reason);
-        console.log('🔄 Restarting in 10 seconds...');
+        console.log('🔄 Restarting in 5 seconds...');
         setTimeout(() => {
             console.log('🔄 Restarting client...');
             client.initialize();
-        }, 10000);
-    });
-
-    client.on('loading_screen', (percent, message) => {
-        console.log(`🔄 Loading: ${percent}% - ${message}`);
+        }, 5000);
     });
 
     // ==============================================
-    // 👋 WELCOME & LEAVE HANDLERS
-    // ==============================================
-    client.on('group_join', async (notification) => {
-        try {
-            const chat = await notification.getChat();
-            const contact = await client.getContactById(notification.recipientIds[0]);
-            const welcomeMsg = `╔═══════════════════╗\n   🎉 *WELCOME PLAYER!*\n╚═══════════════════╝\nHalo Kak @${contact.id.user} 👋\nSelamat bergabung di *${chat.name}*!\n\nSemoga betah yaa! 😄\n\n_Jangan lupa baca deskripsi grup!_`;
-            
-            await chat.sendMessage(welcomeMsg, { mentions: [contact] });
-            
-        } catch (err) { 
-            console.log('Welcome Error:', err.message); 
-        }
-    });
-
-    client.on('group_leave', async (notification) => {
-        try {
-            const chat = await notification.getChat();
-            const contact = await client.getContactById(notification.recipientIds[0]);
-            const leaveMsg = `╔═══════════════════╗\n   🍂 *GAME OVER*\n╚═══════════════════╝\nYah, Kak @${contact.id.user} keluar... 👋\nGood bye!`;
-            await chat.sendMessage(leaveMsg, { mentions: [contact] });
-        } catch (err) { 
-            console.log('Leave Error:', err.message); 
-        }
-    });
-
-    // ==============================================
-    // 📨 MESSAGE HANDLER
+    // 📨 MESSAGE HANDLER (SIMPLE VERSION)
     // ==============================================
     client.on('message_create', async msg => {
         try {
-            // Skip status broadcast dan pesan dari bot sendiri
+            // Skip pesan dari bot sendiri dan status broadcast
             if (msg.from === 'status@broadcast' || msg.fromMe) return;
 
             const body = msg.body.trim();
             const command = body.split(' ')[0].toLowerCase();
             const args = body.slice(command.length + 1).trim();
 
-            // Cache media untuk anti-delete
-            if (msg.hasMedia) {
-                try {
-                    const media = await msg.downloadMedia();
-                    if (media) {
-                        mediaCache.set(msg.id.id, media);
-                        // Batasi cache size
-                        if (mediaCache.size > 50) {
-                            const firstKey = mediaCache.keys().next().value;
-                            mediaCache.delete(firstKey);
-                        }
-                    }
-                } catch (e) { 
-                    // Silent error untuk cache
-                }
-            }
-
             // 1. MENU
             if (command === '.menu' || command === '.help' || command === '!menu') {
                 const waktu = getWaktuIndonesia();
                 const captionMenu = `
-╭━━━〔 🤖 ${NAMA_BOT} 〕━━━╮
-┃ 👤 Owner: ${NAMA_OWNER}
-┃ 🚀 Status: Online 24 Jam
-╰━━━━━━━━━━━━━━━━━━━━━━━━╯
-👋 ${waktu.sapaan}, *${msg._data.notifyName || 'User'}*!
-📅 ${waktu.tanggalLengkap}
+🤖 *${NAMA_BOT} MENU*
+
+👋 ${waktu.sapaan}, ${msg._data.notifyName || 'User'}!
 ⏰ ${waktu.jam}
 
-╭───『 🔥 FITUR UTAMA 』───
-│ 📋 *.menu* - Tampilkan menu
-│ 🛠️ *.sticker* - Buat sticker
-│ 🤣 *.meme Atas|Bawah* - Buat meme
-│ 📢 *.hidetag* - Tag semua member
-│ 👑 *.owner* - Info owner
-│ ☕ *.donasi* - Support bot
-│ 🏓 *.ping* - Cek status bot
-│ 💬 Chat langsung - AI Assistant
-╰──────────────────────
+📋 *FITUR TERSEDIA:*
+• *.menu* - Tampilkan menu ini
+• *.sticker* - Buat sticker dari gambar
+• *.owner* - Info pemilik bot
+• *.donasi* - Support bot
+• *.ping* - Cek status bot
+• Chat langsung untuk AI Assistant
 
-💡 *Cara Pakai AI:*
-- Tag bot di grup: @${NAMA_BOT} pertanyaan
+💡 *Cara Pakai:*
+- Kirim gambar dengan caption *.sticker*
+- Tag bot di grup untuk chat AI
 - Atau chat langsung di private
+
+🔧 *Status:* ${mongoConnected ? 'MongoDB Active' : 'Local Mode'}
                 `;
                 
                 await msg.reply(captionMenu);
@@ -583,52 +529,21 @@ const startBot = async () => {
                         stickerAuthor: NAMA_OWNER 
                     });
                 } else { 
-                    await msg.reply('❌ Kirim/Reply gambar dengan caption *.sticker*'); 
+                    await msg.reply('❌ Kirim atau reply gambar dengan caption *.sticker*'); 
                 }
             }
 
-            // 3. HIDE TAG
-            else if (command === '.hidetag' || command === '.h') {
-                const chat = await msg.getChat();
-                if (chat.isGroup) {
-                    let text = args || "📢 *PENGUMUMAN PENTING!*"; 
-                    let mentions = [];
-                    
-                    for(let participant of chat.participants) {
-                        try {
-                            const contact = await client.getContactById(participant.id._serialized);
-                            mentions.push(contact);
-                        } catch (e) {
-                            // Skip jika error
-                        }
-                    }
-                    
-                    await chat.sendMessage(text, { mentions });
-                } else { 
-                    await msg.reply('❌ Command ini hanya untuk grup!'); 
-                }
-            }
-
-            // 4. MEME
-            else if (command === '.meme') {
-                if (args.includes('|')) {
-                    await msg.reply('ℹ️ Fitur meme sedang dalam perbaikan. Gunakan .sticker untuk sekarang.');
-                } else {
-                    await msg.reply('❌ Format: *.meme Atas|Bawah*\nContoh: .meme WHEN YOU|SEE THE BUG');
-                }
-            }
-
-            // 5. OWNER
+            // 3. OWNER
             else if (command === '.owner') {
-                await msg.reply(`👑 *OWNER ${NAMA_BOT}*\n\nNama: ${NAMA_OWNER}\nWhatsApp: wa.me/${NOMOR_OWNER}\n\nJangan spam ya! 🙏`);
+                await msg.reply(`👑 *OWNER ${NAMA_BOT}*\n\n📛 Nama: ${NAMA_OWNER}\n📱 WA: wa.me/${NOMOR_OWNER}\n\nJangan spam ya! 😊`);
             }
 
-            // 6. DONASI
+            // 4. DONASI
             else if (command === '.donasi' || command === '.donate') {
-                await msg.reply(`☕ *SUPPORT ${NAMA_BOT}*\n\nBantu bot tetap online dengan donasi:\n🔗 ${LINK_DONASI}\n\nTerima kasih banyak! 🙏`);
+                await msg.reply(`💖 *SUPPORT ${NAMA_BOT}*\n\nBantu bot tetap online dengan donasi:\n🔗 ${LINK_DONASI}\n\nTerima kasih banyak! 🙏`);
             }
 
-            // 7. PING
+            // 5. PING
             else if (command === '.ping' || command === '.status') {
                 const waktu = getWaktuIndonesia();
                 const uptime = process.uptime();
@@ -636,17 +551,17 @@ const startBot = async () => {
                 const minutes = Math.floor((uptime % 3600) / 60);
                 const seconds = Math.floor(uptime % 60);
                 
-                await msg.reply(`🏓 *PONG!*\n\n🕐 Uptime: ${hours}h ${minutes}m ${seconds}s\n📅 ${waktu.tanggalLengkap}\n⏰ ${waktu.jam}\n\n${NAMA_BOT} siap melayani!`);
+                await msg.reply(`🏓 *PONG!*\n\n⏱️ Uptime: ${hours}h ${minutes}m ${seconds}s\n📅 ${waktu.tanggalLengkap}\n⏰ ${waktu.jam}\n\n${NAMA_BOT} siap melayani! 🚀`);
             }
 
-            // 8. AI CHAT (Sederhana)
+            // 6. AI CHAT (Private chat atau mention di grup)
             else {
                 const isGroup = msg.from.includes('@g.us');
                 const isMentioned = msg.mentionedIds && 
                     msg.mentionedIds.includes(client.info?.wid?._serialized);
                 
-                if (!isGroup || isMentioned || body.toLowerCase().includes(NAMA_BOT.toLowerCase())) {
-                    if (body.length > 2) {
+                if (!isGroup || isMentioned) {
+                    if (body.length > 2 && !body.startsWith('.')) {
                         try {
                             const chat = await msg.getChat();
                             await chat.sendStateTyping();
@@ -656,13 +571,11 @@ const startBot = async () => {
                                 prompt = body.replace(`@${client.info.wid.user}`, '').trim();
                             }
                             
-                            if (prompt.length > 1) {
-                                const jawaban = await tanyaAI(prompt);
-                                await msg.reply(jawaban);
-                            }
+                            const jawaban = await tanyaAI(prompt);
+                            await msg.reply(jawaban);
                         } catch (error) {
                             console.log('AI Response error:', error.message);
-                            await msg.reply('⚠️ Gagal memproses pertanyaan. Coba lagi nanti.');
+                            await msg.reply('⚠️ Maaf, terjadi error. Coba lagi nanti ya!');
                         }
                     }
                 }
@@ -673,42 +586,10 @@ const startBot = async () => {
         }
     });
 
-    // ANTI-DELETE
-    client.on('message_revoke_everyone', async (after, before) => {
-        if (before && !before.fromMe) {
-            try {
-                const media = mediaCache.get(before.id.id);
-                const contact = await before.getContact();
-                const waktu = getWaktuIndonesia();
-                
-                let caption = `👮 *PESAN DIHAPUS*\n\n👤 Dari: @${contact.id.user}\n`;
-                
-                if (before.body) {
-                    caption += `📝 Isi: ${before.body.substring(0, 100)}${before.body.length > 100 ? '...' : ''}\n`;
-                }
-                
-                caption += `⏰ Waktu: ${waktu.jam}`;
-                
-                if (media) {
-                    await client.sendMessage(before.from, media, { 
-                        caption: caption, 
-                        mentions: [contact] 
-                    });
-                } else {
-                    await client.sendMessage(before.from, caption, { 
-                        mentions: [contact] 
-                    });
-                }
-            } catch (e) {
-                console.log('Anti-delete error:', e.message);
-            }
-        }
-    });
-
     // Start Express Server
     app.listen(PORT, '0.0.0.0', () => {
-        console.log(`🌐 Dashboard: http://0.0.0.0:${PORT}`);
-        console.log(`🏥 Health Check: http://0.0.0.0:${PORT}/health`);
+        console.log(`🌐 Dashboard: http://localhost:${PORT}`);
+        console.log(`🏥 Health: http://localhost:${PORT}/health`);
     });
     
     // Initialize WhatsApp Client
@@ -718,6 +599,7 @@ const startBot = async () => {
 // JALANKAN BOT
 startBot().catch(err => {
     console.error('❌ FATAL ERROR:', err);
+    console.error('Stack:', err.stack);
     process.exit(1);
 });
 
@@ -727,16 +609,5 @@ process.on('uncaughtException', (err) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => { 
-    console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason); 
-});
-
-// Graceful Shutdown
-process.on('SIGTERM', () => {
-    console.log('🔄 SIGTERM received. Shutting down gracefully...');
-    process.exit(0);
-});
-
-process.on('SIGINT', () => {
-    console.log('🔄 SIGINT received. Shutting down...');
-    process.exit(0);
+    console.error('⚠️ Unhandled Rejection:', reason); 
 });
