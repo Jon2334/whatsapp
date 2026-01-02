@@ -1,10 +1,16 @@
 {
-  "name": "whatsapp-bot",
+  "name": "jonkris-whatsapp-bot",
   "version": "1.0.0",
+  "description": "WhatsApp Bot dengan AI dan MongoDB",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "engines": {
+    "node": "18.x",
+    "npm": "9.x"
   },
   "dependencies": {
     "whatsapp-web.js": "^1.23.0",
@@ -15,7 +21,16 @@
     "mongoose": "^7.5.0",
     "wwebjs-mongo": "^1.1.1"
   },
-  "engines": {
-    "node": "18.x"
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "ai",
+    "groq"
+  ],
+  "author": "Jon Kris",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Jon2334/whatsapp/"
   }
 }

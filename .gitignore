@@ -1,4 +1,10 @@
-node_modules
+node_modules/
+npm-debug.log*
+.DS_Store
+.wwebjs_auth/
 .env
-.wwebjs_auth
-.wwebjs_cache
+*.env
+session/
+tmp/
+*.tmp
+*.log
