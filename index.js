@@ -1,4 +1,3 @@
-const fs = require('fs');
 const { Client, RemoteAuth, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const express = require('express');
@@ -10,13 +9,19 @@ const { MongoStore } = require('wwebjs-mongo');
 // ==============================================
 // ⚙️ KONFIGURASI UTAMA
 // ==============================================
-const GROQ_API_KEY = process.env.GROQ_API_KEY || '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'; 
-const MONGO_URI = process.env.MONGO_URI;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const MONGO_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
 
-const NOMOR_OWNER = '6289509158681'; 
-const NAMA_BOT = 'JONKRIS BOT';      
-const NAMA_OWNER = 'Jon Kris'; 
-const LINK_DONASI = 'https://saweria.co/jonkris'; 
+// Validasi environment variables
+if (!GROQ_API_KEY) {
+    console.error('❌ GROQ_API_KEY tidak ditemukan di environment variables!');
+    process.exit(1);
+}
+
+const NOMOR_OWNER = process.env.NOMOR_OWNER || '6289509158681'; 
+const NAMA_BOT = process.env.NAMA_BOT || 'JONKRIS BOT';      
+const NAMA_OWNER = process.env.NAMA_OWNER || 'Jon Kris'; 
+const LINK_DONASI = process.env.LINK_DONASI || 'https://saweria.co/jonkris'; 
 const PORT = process.env.PORT || 3000;
 
 const HEADER_IMAGE_URL = 'https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1000&auto=format&fit=crop';
@@ -31,49 +36,24 @@ const REACTION_LIST = [
 const groq = new Groq({ apiKey: GROQ_API_KEY });
 const mediaCache = new Map(); 
 
-// --- FUNGSI AI ---
-async function tanyaAI(pertanyaan) {
-    try {
-        console.log(`🧠 AI Processing...`);
-        const chatCompletion = await groq.chat.completions.create({
-            messages: [
-                { role: "system", content: `Kamu adalah ${NAMA_BOT}, asisten ${NAMA_OWNER}. Jawab singkat, gaul, & seru.` },
-                { role: "user", content: pertanyaan }
-            ],
-            model: "llama-3.3-70b-versatile",
-            temperature: 0.7,
-            max_tokens: 1024,
-        });
-        return chatCompletion.choices[0]?.message?.content || "Otak bot lagi loading...";
-    } catch (error) {
-        console.error("AI Error:", error);
-        return "⚠️ Limit AI habis / Error.";
-    }
-}
-
-// --- FUNGSI WAKTU INDONESIA ---
-function getWaktuIndonesia() {
-    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
-    const hariArr = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-    const bulanArr = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-
-    const jam = now.getHours();
-    let sapaan = 'Selamat Malam 🌙';
-    if (jam >= 4 && jam < 11) sapaan = 'Selamat Pagi 🌅';
-    else if (jam >= 11 && jam < 15) sapaan = 'Selamat Siang ☀️';
-    else if (jam >= 15 && jam < 18) sapaan = 'Selamat Sore 🌇';
-
-    return {
-        sapaan: sapaan,
-        tanggalLengkap: `${hariArr[now.getDay()]}, ${now.getDate()} ${bulanArr[now.getMonth()]} ${now.getFullYear()}`,
-        jam: `${String(jam).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} WIB`
-    };
-}
-
 // ==============================================
 // 🌐 SERVER DASHBOARD (EXPRESS)
 // ==============================================
 const app = express();
+
+// Middleware untuk parsing JSON
+app.use(express.json());
+
+// Health check endpoint untuk Heroku
+app.get('/health', (req, res) => {
+    res.status(200).json({ 
+        status: 'OK', 
+        bot: NAMA_BOT,
+        timestamp: new Date().toISOString()
+    });
+});
+
+// Dashboard utama
 app.get('/', (req, res) => {
     const waktu = getWaktuIndonesia(); 
     res.send(`
@@ -98,6 +78,7 @@ app.get('/', (req, res) => {
             .btn-owner { background: #007bff; color: white; }
             .btn-donate { background: #ffc107; color: #000; }
             .footer { margin-top: 20px; font-size: 11px; color: #555; }
+            .mongo-status { margin-top: 10px; font-size: 10px; padding: 5px; border-radius: 5px; background: #2a2a2a; }
         </style>
     </head>
     <body>
@@ -111,17 +92,67 @@ app.get('/', (req, res) => {
                     <div class="date">${waktu.tanggalLengkap}</div>
                     <div class="clock">${waktu.jam}</div>
                 </div>
+                <div class="mongo-status">MongoDB: ${MONGO_URI ? '✅ Connected' : '⚠️ LocalAuth'}</div>
                 <div class="btn-group">
-                    <a href="https://wa.me/${NOMOR_OWNER}" class="btn btn-owner">👤 Chat Owner</a>
-                    <a href="${LINK_DONASI}" class="btn btn-donate">☕ Trakteer Donasi</a>
+                    <a href="https://wa.me/${NOMOR_OWNER}" class="btn btn-owner" target="_blank">👤 Chat Owner</a>
+                    <a href="${LINK_DONASI}" class="btn btn-donate" target="_blank">☕ Trakteer Donasi</a>
                 </div>
-                <div class="footer">Running on Port ${PORT}</div>
+                <div class="footer">Running on Port ${PORT} | ${process.env.NODE_ENV || 'development'}</div>
             </div>
         </div>
     </body>
     </html>
     `);
 });
+
+// --- FUNGSI AI ---
+async function tanyaAI(pertanyaan) {
+    try {
+        console.log(`🧠 AI Processing: ${pertanyaan.substring(0, 50)}...`);
+        const chatCompletion = await groq.chat.completions.create({
+            messages: [
+                { 
+                    role: "system", 
+                    content: `Kamu adalah ${NAMA_BOT}, asisten ${NAMA_OWNER}. 
+                    Jawab singkat, gaul, & seru. 
+                    Maksimal 3 paragraf. 
+                    Gunakan emoji yang relevan.` 
+                },
+                { role: "user", content: pertanyaan }
+            ],
+            model: "llama-3.3-70b-versatile",
+            temperature: 0.7,
+            max_tokens: 512, // Kurangi untuk hemat quota
+        });
+        return chatCompletion.choices[0]?.message?.content || "🤖 Otak bot lagi loading...";
+    } catch (error) {
+        console.error("AI Error:", error.message);
+        // Berikan response yang lebih spesifik berdasarkan error
+        if (error.status === 429) {
+            return "⚠️ Limit AI hari ini habis, coba lagi besok ya!";
+        }
+        return "⚠️ Sedang gangguan jaringan AI, coba lagi nanti.";
+    }
+}
+
+// --- FUNGSI WAKTU INDONESIA ---
+function getWaktuIndonesia() {
+    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+    const hariArr = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const bulanArr = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+    const jam = now.getHours();
+    let sapaan = 'Selamat Malam 🌙';
+    if (jam >= 4 && jam < 11) sapaan = 'Selamat Pagi 🌅';
+    else if (jam >= 11 && jam < 15) sapaan = 'Selamat Siang ☀️';
+    else if (jam >= 15 && jam < 18) sapaan = 'Selamat Sore 🌇';
+
+    return {
+        sapaan: sapaan,
+        tanggalLengkap: `${hariArr[now.getDay()]}, ${now.getDate()} ${bulanArr[now.getMonth()]} ${now.getFullYear()}`,
+        jam: `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')} WIB`
+    };
+}
 
 // ==============================================
 // 🚀 START DATABASE & BOT
@@ -134,11 +165,21 @@ const startBot = async () => {
     // Cek apakah ada MONGO_URI
     if (MONGO_URI) {
         try {
+            console.log('🔗 Mencoba koneksi ke MongoDB...');
             await mongoose.connect(MONGO_URI, {
                 useNewUrlParser: true,
-                useUnifiedTopology: true
+                useUnifiedTopology: true,
+                serverSelectionTimeoutMS: 5000,
+                socketTimeoutMS: 45000,
             });
-            store = new MongoStore({ mongoose: mongoose });
+            
+            // Test connection
+            await mongoose.connection.db.admin().ping();
+            
+            store = new MongoStore({ 
+                mongoose: mongoose,
+                collectionName: 'whatsapp_sessions'
+            });
             console.log('✅ Berhasil terhubung ke MongoDB!');
         } catch (err) {
             console.error('❌ Gagal koneksi MongoDB:', err.message);
@@ -148,38 +189,57 @@ const startBot = async () => {
         console.log('⚠️ MONGO_URI tidak ditemukan. Menggunakan LocalAuth.');
     }
 
+    // Konfigurasi Puppeteer untuk Heroku
+    const puppeteerArgs = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu'
+    ];
+
+    // Jika di Heroku, gunakan Chromium yang tersedia
+    const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || 
+                         (process.env.NODE_ENV === 'production' ? 
+                          '/app/.apt/usr/bin/google-chrome-stable' : undefined);
+
     // Konfigurasi Client
     const client = new Client({
         authStrategy: store ? new RemoteAuth({
-            clientId: 'jonkris-session',
+            clientId: 'jonkris-whatsapp-bot',
             store: store,
-            backupSyncIntervalMs: 300000 
-        }) : new LocalAuth({ clientId: "jonkris-local" }),
+            backupSyncIntervalMs: 600000, // 10 menit
+            dataPath: './.wwebjs_auth'
+        }) : new LocalAuth({ 
+            clientId: "jonkris-local",
+            dataPath: './.wwebjs_auth'
+        }),
 
         puppeteer: {
-            headless: true,
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--disable-gpu',
-                '--disable-software-rasterizer'
-            ]
+            headless: 'new',
+            executablePath: executablePath,
+            args: puppeteerArgs,
+            ignoreDefaultArgs: ['--disable-extensions']
+        },
+        webVersionCache: {
+            type: 'remote',
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
         }
     });
 
     client.on('qr', (qr) => { 
         console.log('📱 SCAN QR CODE SEKARANG DI TERMINAL:'); 
         qrcode.generate(qr, { small: true }); 
+        console.log('QR Code juga tersedia di dashboard (jika diatur)');
     });
 
     client.on('ready', () => { 
         console.clear(); 
         console.log(`✅ ${NAMA_BOT} SUDAH ONLINE!`); 
+        console.log(`📱 WhatsApp: ${client.info.pushname}`);
+        console.log(`👤 Number: ${client.info.wid.user}`);
     });
 
     client.on('remote_session_saved', () => {
@@ -194,6 +254,15 @@ const startBot = async () => {
         console.error('❌ Authentication failed:', msg);
     });
 
+    client.on('disconnected', (reason) => {
+        console.log('❌ Client disconnected:', reason);
+        // Coba restart setelah 10 detik
+        setTimeout(() => {
+            console.log('🔄 Mencoba restart...');
+            client.initialize();
+        }, 10000);
+    });
+
     // ==============================================
     // 👋 WELCOME & LEAVE
     // ==============================================
@@ -206,11 +275,17 @@ const startBot = async () => {
             const welcomeMsg = `╔═══════════════════╗\n   🎉 *WELCOME PLAYER!*\n╚═══════════════════╝\nHalo Kak @${contact.id.user} 👋\nSelamat bergabung di *${chat.name}*!\n\n"${pesanAI}"\n\n_Jangan lupa baca deskripsi grup ya!_`;
             
             await chat.sendMessage(welcomeMsg, { mentions: [contact] });
+            
+            // Coba kirim media
             try {
                 const media = await MessageMedia.fromUrl(HEADER_IMAGE_URL, { unsafeMime: true });
-                await chat.sendMessage(media, { caption: "Selamat datang!" });
-            } catch(e) { console.log('Media error:', e.message); }
-        } catch (err) { console.log('Welcome Error:', err.message); }
+                await chat.sendMessage(media, { caption: "Selamat datang! 🎉" });
+            } catch(e) { 
+                console.log('Media welcome error:', e.message); 
+            }
+        } catch (err) { 
+            console.log('Welcome Error:', err.message); 
+        }
     });
 
     client.on('group_leave', async (notification) => {
@@ -219,7 +294,9 @@ const startBot = async () => {
             const contact = await client.getContactById(notification.recipientIds[0]);
             const leaveMsg = `╔═══════════════════╗\n   🍂 *GAME OVER*\n╚═══════════════════╝\nYah, Kak @${contact.id.user} keluar... 👋\nGood bye!`;
             await chat.sendMessage(leaveMsg, { mentions: [contact] });
-        } catch (err) { console.log('Leave Error:', err.message); }
+        } catch (err) { 
+            console.log('Leave Error:', err.message); 
+        }
     });
 
     // ==============================================
@@ -227,61 +304,94 @@ const startBot = async () => {
     // ==============================================
     client.on('message_create', async msg => {
         try {
+            // Skip status broadcast
             if (msg.from === 'status@broadcast') return;
 
-            // --- CACHE & SECURITY ---
-            if (msg.hasMedia) {
+            // Skip jika pesan dari bot sendiri
+            if (msg.fromMe) return;
+
+            // AUTO REACTION (hanya 30% pesan)
+            if (Math.random() < 0.3) {
                 try {
-                    const media = await msg.downloadMedia();
-                    if (media) {
-                        mediaCache.set(msg.id.id, media);
-                        if (mediaCache.size > 50) mediaCache.delete(mediaCache.keys().next().value);
-                    }
-                } catch (e) { console.log('Download media error:', e.message); }
+                    const randomEmoji = REACTION_LIST[Math.floor(Math.random() * REACTION_LIST.length)];
+                    await msg.react(randomEmoji);
+                } catch (e) { 
+                    // Silent error untuk reaction
+                }
             }
-            
-            if (msg.hasMedia && (msg.isViewOnce || (msg._data && msg._data.isViewOnce))) {
-                const media = await msg.downloadMedia();
-                if (media) await client.sendMessage(msg.from, media, { caption: '🔓 *Anti-View Once*\nJangan pelit-pelit napa! 😜' });
-                return;
-            }
-
-            if (msg.fromMe) return; 
-
-            // AUTO REACTION
-            try {
-                const randomEmoji = REACTION_LIST[Math.floor(Math.random() * REACTION_LIST.length)];
-                await msg.react(randomEmoji);
-            } catch (e) { console.log('Reaction error:', e.message); }
 
             const body = msg.body.trim();
             const command = body.split(' ')[0].toLowerCase();
             const args = body.slice(command.length + 1).trim();
 
+            // CACHE MEDIA untuk anti-delete
+            if (msg.hasMedia) {
+                try {
+                    const media = await msg.downloadMedia();
+                    if (media) {
+                        mediaCache.set(msg.id.id, media);
+                        // Batasi cache size
+                        if (mediaCache.size > 50) {
+                            const firstKey = mediaCache.keys().next().value;
+                            mediaCache.delete(firstKey);
+                        }
+                    }
+                } catch (e) { 
+                    console.log('Download media error:', e.message); 
+                }
+            }
+
+            // ANTI VIEW ONCE
+            if (msg.hasMedia && (msg.isViewOnce || (msg._data && msg._data.isViewOnce))) {
+                try {
+                    const media = await msg.downloadMedia();
+                    if (media) {
+                        await client.sendMessage(msg.from, media, { 
+                            caption: '🔓 *Anti-View Once*\nJangan pelit-pelit napa! 😜' 
+                        });
+                    }
+                } catch (e) {
+                    console.log('Anti view once error:', e.message);
+                }
+                return;
+            }
+
             // 1. MENU
             if (command === '.menu' || command === '.help') {
-                const motivasi = await tanyaAI("Quote singkat motivasi hacker/gamer.");
                 const waktu = getWaktuIndonesia(); 
+                const motivasi = await tanyaAI("Quote singkat motivasi hacker/gamer (maksimal 10 kata).");
+                
                 const captionMenu = `
 ╭━━━〔 🤖 ${NAMA_BOT} 〕━━━╮
 ┃ 👤 Owner: ${NAMA_OWNER}
 ┃ 🚀 Status: Online 24 Jam
 ╰━━━━━━━━━━━━━━━━━━━━━━━━╯
-👋 ${waktu.sapaan}, *${msg._data.notifyName}*!
+👋 ${waktu.sapaan}, *${msg._data.notifyName || 'User'}*!
 📅 *${waktu.tanggalLengkap}*
+⏰ ${waktu.jam}
 ❝ _${motivasi}_ ❞
 
 ╭───『 🔥 FITUR UTAMA 』───
-│ 🛠️ *.sticker* (Reply Gambar)
-│ 🤣 *.meme TeksAtas|TeksBawah*
-│ 📢 *.hidetag* (Tag All Hidden)
-│ 💬 *Chat AI* (Langsung ketik aja)
+│ 📋 *.menu* - Tampilkan menu ini
+│ 🛠️ *.sticker* - Buat sticker dari gambar
+│ 🤣 *.meme Atas|Bawah* - Buat meme
+│ 📢 *.hidetag* - Tag semua member
+│ 👑 *.owner* - Info owner
+│ ☕ *.donasi* - Support bot
+│ 💬 *NamaBot pertanyaan* - Chat AI
 ╰──────────────────────
-`;
+
+💡 *Catatan:* 
+- Reply gambar dengan .sticker
+- Tag bot di grup untuk chat AI
+                `;
+                
                 try {
                     const media = await MessageMedia.fromUrl(HEADER_IMAGE_URL, { unsafeMime: true });
                     await client.sendMessage(msg.from, media, { caption: captionMenu });
-                } catch (e) { await msg.reply(captionMenu); }
+                } catch (e) { 
+                    await msg.reply(captionMenu); 
+                }
             }
 
             // 2. STICKER
@@ -297,13 +407,14 @@ const startBot = async () => {
                 }
                 
                 if (media) {
+                    await msg.react('🎨');
                     await client.sendMessage(msg.from, media, { 
                         sendMediaAsSticker: true, 
                         stickerName: NAMA_BOT, 
                         stickerAuthor: NAMA_OWNER 
                     });
                 } else { 
-                    msg.reply('❌ Kirim/Reply gambar dengan caption *.sticker*'); 
+                    await msg.reply('❌ Kirim/Reply gambar dengan caption *.sticker*'); 
                 }
             }
 
@@ -311,14 +422,27 @@ const startBot = async () => {
             else if (command === '.hidetag' || command === '.h') {
                 const chat = await msg.getChat();
                 if (chat.isGroup) {
+                    await msg.react('📢');
                     let text = args || "📢 *PENGUMUMAN PENTING!*"; 
                     let mentions = [];
+                    
                     for(let participant of chat.participants) {
-                        const contact = await client.getContactById(participant.id._serialized);
-                        mentions.push(contact);
+                        try {
+                            const contact = await client.getContactById(participant.id._serialized);
+                            mentions.push(contact);
+                        } catch (e) {
+                            console.log('Error mendapatkan kontak:', e.message);
+                        }
                     }
-                    await chat.sendMessage(text, { mentions });
-                } else { msg.reply('❌ Khusus Grup!'); }
+                    
+                    if (mentions.length > 0) {
+                        await chat.sendMessage(text, { mentions });
+                    } else {
+                        await msg.reply('❌ Gagal mendapatkan daftar member');
+                    }
+                } else { 
+                    await msg.reply('❌ Command ini hanya untuk grup!'); 
+                }
             }
 
             // 4. MEME
@@ -335,50 +459,131 @@ const startBot = async () => {
                 
                 if (media && args.includes('|')) {
                     try {
-                        const image = await Jimp.read(Buffer.from(media.data, 'base64'));
-                        const font = await Jimp.loadFont(Jimp.FONT_SANS_64_WHITE);
-                        image.resize(800, Jimp.AUTO);
-                        let [top, bottom] = args.split('|');
-                        if(top) image.print(font, 0, 10, { text: top.trim().toUpperCase(), alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER }, 800);
-                        if(bottom) image.print(font, 0, image.bitmap.height - 80, { text: bottom.trim().toUpperCase(), alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER }, 800);
+                        await msg.react('😆');
+                        const [top, bottom] = args.split('|');
+                        
+                        // Decode base64 image
+                        const imageBuffer = Buffer.from(media.data, 'base64');
+                        const image = await Jimp.read(imageBuffer);
+                        
+                        // Resize dengan rasio yang baik
+                        image.resize(512, Jimp.AUTO);
+                        
+                        // Load font
+                        const font = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
+                        
+                        // Hitung posisi teks
+                        const imageWidth = image.bitmap.width;
+                        const imageHeight = image.bitmap.height;
+                        
+                        // Tambah teks atas
+                        if (top && top.trim()) {
+                            const topText = top.trim().toUpperCase();
+                            const topTextWidth = Jimp.measureText(font, topText);
+                            const topX = (imageWidth - topTextWidth) / 2;
+                            image.print(font, topX, 10, topText);
+                        }
+                        
+                        // Tambah teks bawah
+                        if (bottom && bottom.trim()) {
+                            const bottomText = bottom.trim().toUpperCase();
+                            const bottomTextWidth = Jimp.measureText(font, bottomText);
+                            const bottomX = (imageWidth - bottomTextWidth) / 2;
+                            image.print(font, bottomX, imageHeight - 50, bottomText);
+                        }
+                        
+                        // Konversi ke buffer
                         const buff = await image.getBufferAsync(Jimp.MIME_JPEG);
-                        await client.sendMessage(msg.from, new MessageMedia('image/jpeg', buff.toString('base64')), { sendMediaAsSticker: true });
+                        
+                        // Kirim sebagai gambar biasa
+                        const memeMedia = new MessageMedia('image/jpeg', buff.toString('base64'));
+                        await client.sendMessage(msg.from, memeMedia, { 
+                            caption: `Meme by ${NAMA_BOT}` 
+                        });
+                        
                     } catch (e) { 
                         console.log('Meme error:', e.message);
-                        msg.reply('❌ Gagal edit. Format: .meme Atas|Bawah'); 
+                        await msg.reply('❌ Gagal membuat meme. Pastikan format: *.meme TeksAtas|TeksBawah*'); 
                     }
                 } else {
-                    msg.reply('❌ Format: .meme Atas|Bawah');
+                    await msg.reply('❌ Format: *.meme Atas|Bawah*\nContoh: .meme WHEN YOU|SEE THE BUG');
                 }
             }
 
             // 5. OWNER & DONASI
             else if (command === '.owner') {
-                const kontak = await client.getContactById(NOMOR_OWNER + '@c.us');
-                await client.sendMessage(msg.from, kontak, { caption: `👑 Ini Tuan saya, *${NAMA_OWNER}*` });
+                try {
+                    const kontak = await client.getContactById(`${NOMOR_OWNER}@c.us`);
+                    await client.sendMessage(msg.from, kontak, { 
+                        caption: `👑 *OWNER ${NAMA_BOT}*\n\nNama: ${NAMA_OWNER}\nWhatsApp: wa.me/${NOMOR_OWNER}` 
+                    });
+                } catch (e) {
+                    await msg.reply(`👑 *OWNER ${NAMA_BOT}*\n\nNama: ${NAMA_OWNER}\nWhatsApp: wa.me/${NOMOR_OWNER}`);
+                }
             }
-            else if (command === '.donasi') {
-                await msg.reply(`☕ *TRAKTEER KOPI*\n\nSupport bot agar tetap online:\n🔗 ${LINK_DONASI}\n\nTerima kasih! 🙏`);
+            else if (command === '.donasi' || command === '.donate') {
+                await msg.reply(`☕ *SUPPORT ${NAMA_BOT}*\n\nBantu bot tetap online dengan donasi:\n🔗 ${LINK_DONASI}\n\nTerima kasih banyak! 🙏`);
             }
 
-            // 6. AI CHAT
+            // 6. PING / STATUS
+            else if (command === '.ping' || command === '.status') {
+                const waktu = getWaktuIndonesia();
+                const uptime = process.uptime();
+                const hours = Math.floor(uptime / 3600);
+                const minutes = Math.floor((uptime % 3600) / 60);
+                const seconds = Math.floor(uptime % 60);
+                
+                await msg.reply(`🏓 *PONG!*\n\n🕐 Uptime: ${hours}h ${minutes}m ${seconds}s\n📅 ${waktu.tanggalLengkap}\n⏰ ${waktu.jam}\n\n${NAMA_BOT} siap melayani!`);
+            }
+
+            // 7. AI CHAT
             else {
                 const isGroup = msg.from.includes('@g.us');
-                const isMentioned = msg.mentionedIds && msg.mentionedIds.includes(client.info.wid._serialized);
+                const isMentioned = msg.mentionedIds && 
+                    msg.mentionedIds.includes(client.info?.wid?._serialized);
+                const isDirectMessage = !isGroup;
+                const isBotMentionedInText = body.toLowerCase().includes(NAMA_BOT.toLowerCase());
                 
-                if (!isGroup || (isGroup && isMentioned) || body.startsWith('.')) {
-                    if (body.length > 1) { 
+                // Logika trigger AI:
+                // 1. DM langsung (bukan grup)
+                // 2. Di-mention di grup
+                // 3. Menyebut nama bot di grup
+                // 4. Pesan panjang (>5 kata) di grup (random 20% chance)
+                
+                let shouldRespond = false;
+                let prompt = body;
+                
+                if (isDirectMessage) {
+                    shouldRespond = true;
+                } else if (isGroup) {
+                    if (isMentioned) {
+                        shouldRespond = true;
+                        prompt = body.replace(`@${client.info.wid.user}`, '').trim();
+                    } else if (isBotMentionedInText) {
+                        shouldRespond = true;
+                        prompt = body.replace(new RegExp(NAMA_BOT, 'gi'), '').trim();
+                    } else if (body.length > 20 && Math.random() < 0.2) {
+                        shouldRespond = true;
+                    }
+                }
+                
+                if (shouldRespond && prompt.length > 1) {
+                    try {
                         const chat = await msg.getChat();
                         await chat.sendStateTyping();
-                        let prompt = body.replace('.','').replace(`@${client.info.wid.user}`, '').trim();
+                        
                         const jawaban = await tanyaAI(prompt);
                         await msg.reply(jawaban);
+                    } catch (error) {
+                        console.log('AI Response error:', error.message);
+                        await msg.reply('⚠️ Gagal memproses pertanyaan. Coba lagi nanti.');
                     }
                 }
             }
 
         } catch (err) { 
-            console.log('Message Error:', err.message); 
+            console.log('Message Error:', err.message);
+            console.log('Stack:', err.stack);
         }
     });
 
@@ -386,13 +591,27 @@ const startBot = async () => {
     client.on('message_revoke_everyone', async (after, before) => {
         if (before && !before.fromMe) {
             try {
-                let media = mediaCache.get(before.id.id);
+                const media = mediaCache.get(before.id.id);
                 const contact = await before.getContact();
-                const caption = `👮 *ANTI-DELETE DETECTED*\n👤 Pelaku: @${contact.id.user}\n📝 Pesan: ${before.body}\n⏰ ${new Date().toLocaleTimeString()}`;
+                const waktu = getWaktuIndonesia();
+                
+                let caption = `👮 *ANTI-DELETE DETECTED*\n\n👤 Pelaku: @${contact.id.user}\n`;
+                
+                if (before.body) {
+                    caption += `📝 Pesan: ${before.body.substring(0, 100)}${before.body.length > 100 ? '...' : ''}\n`;
+                }
+                
+                caption += `⏰ Waktu: ${waktu.jam}\n📍 ${before.fromMe ? 'Dikirim oleh bot' : 'Dikirim oleh user'}`;
+                
                 if (media) {
-                    await client.sendMessage(before.from, media, { caption: caption, mentions: [contact] });
+                    await client.sendMessage(before.from, media, { 
+                        caption: caption, 
+                        mentions: [contact] 
+                    });
                 } else {
-                    await client.sendMessage(before.from, caption, { mentions: [contact] });
+                    await client.sendMessage(before.from, caption, { 
+                        mentions: [contact] 
+                    });
                 }
             } catch (e) {
                 console.log('Anti-delete error:', e.message);
@@ -401,20 +620,37 @@ const startBot = async () => {
     });
 
     // Start Server Express
-    app.listen(PORT, () => console.log(`🚀 Dashboard siap di Port ${PORT}`));
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`🚀 Dashboard siap di http://0.0.0.0:${PORT}`);
+        console.log(`🏥 Health check: http://0.0.0.0:${PORT}/health`);
+    });
     
     // Jalankan Bot
-    client.initialize();
+    await client.initialize();
 };
 
 // JALANKAN FUNGSI UTAMA
-startBot();
+startBot().catch(err => {
+    console.error('❌ Gagal memulai bot:', err);
+    process.exit(1);
+});
 
 // Handler Error Global
 process.on('uncaughtException', (err) => { 
     console.error('⚠️ Uncaught Exception:', err); 
 });
 
-process.on('unhandledRejection', (reason) => { 
-    console.error('⚠️ Unhandled Rejection:', reason); 
+process.on('unhandledRejection', (reason, promise) => { 
+    console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason); 
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('🔄 SIGTERM received. Shutting down gracefully...');
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    console.log('🔄 SIGINT received. Shutting down...');
+    process.exit(0);
 });
