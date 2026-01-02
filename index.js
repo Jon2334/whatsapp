@@ -1,18 +1,17 @@
-const fs = require('fs'); // <--- TAMBAHKAN INI DI BARIS PALING ATAS
+const fs = require('fs');
 const { Client, RemoteAuth, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const express = require('express');
 const Groq = require('groq-sdk');
 const Jimp = require('jimp');
-const mongoose = require('mongoose'); // Library Database
-const { MongoStore } = require('wwebjs-mongo'); // Library Penyimpan Sesi
+const mongoose = require('mongoose');
+const { MongoStore } = require('wwebjs-mongo');
 
 // ==============================================
 // ⚙️ KONFIGURASI UTAMA
 // ==============================================
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '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'; 
-// Masukkan URL MongoDB dari Atlas di Config Vars Heroku dengan nama key: MONGO_URI
-const MONGO_URI = process.env.MONGO_URI; 
+const MONGO_URI = process.env.MONGO_URI;
 
 const NOMOR_OWNER = '6289509158681'; 
 const NAMA_BOT = 'JONKRIS BOT';      
@@ -129,14 +128,16 @@ app.get('/', (req, res) => {
 // ==============================================
 console.log('🔄 Menghubungkan ke Database...');
 
-// Fungsi Start agar bisa async/await
 const startBot = async () => {
     let store;
     
     // Cek apakah ada MONGO_URI
     if (MONGO_URI) {
         try {
-            await mongoose.connect(MONGO_URI);
+            await mongoose.connect(MONGO_URI, {
+                useNewUrlParser: true,
+                useUnifiedTopology: true
+            });
             store = new MongoStore({ mongoose: mongoose });
             console.log('✅ Berhasil terhubung ke MongoDB!');
         } catch (err) {
@@ -148,25 +149,27 @@ const startBot = async () => {
     }
 
     // Konfigurasi Client
-   const client = new Client({
+    const client = new Client({
         authStrategy: store ? new RemoteAuth({
             clientId: 'jonkris-session',
             store: store,
             backupSyncIntervalMs: 300000 
         }) : new LocalAuth({ clientId: "jonkris-local" }),
 
-  puppeteer: {
-    headless: true,
-    executablePath: process.env.GOOGLE_CHROME_BIN,
-    args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--single-process'
-    ]
-}
-
+        puppeteer: {
+            headless: true,
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu',
+                '--disable-software-rasterizer'
+            ]
+        }
     });
 
     client.on('qr', (qr) => { 
@@ -181,6 +184,14 @@ const startBot = async () => {
 
     client.on('remote_session_saved', () => {
         console.log('💾 Sesi tersimpan di Database!');
+    });
+
+    client.on('authenticated', () => {
+        console.log('✅ Authenticated!');
+    });
+
+    client.on('auth_failure', (msg) => {
+        console.error('❌ Authentication failed:', msg);
     });
 
     // ==============================================
@@ -198,7 +209,7 @@ const startBot = async () => {
             try {
                 const media = await MessageMedia.fromUrl(HEADER_IMAGE_URL, { unsafeMime: true });
                 await chat.sendMessage(media, { caption: "Selamat datang!" });
-            } catch(e) {}
+            } catch(e) { console.log('Media error:', e.message); }
         } catch (err) { console.log('Welcome Error:', err.message); }
     });
 
@@ -226,9 +237,10 @@ const startBot = async () => {
                         mediaCache.set(msg.id.id, media);
                         if (mediaCache.size > 50) mediaCache.delete(mediaCache.keys().next().value);
                     }
-                } catch (e) {}
+                } catch (e) { console.log('Download media error:', e.message); }
             }
-            if (msg.hasMedia && (msg.isViewOnce || msg._data.isViewOnce)) {
+            
+            if (msg.hasMedia && (msg.isViewOnce || (msg._data && msg._data.isViewOnce))) {
                 const media = await msg.downloadMedia();
                 if (media) await client.sendMessage(msg.from, media, { caption: '🔓 *Anti-View Once*\nJangan pelit-pelit napa! 😜' });
                 return;
@@ -240,7 +252,7 @@ const startBot = async () => {
             try {
                 const randomEmoji = REACTION_LIST[Math.floor(Math.random() * REACTION_LIST.length)];
                 await msg.react(randomEmoji);
-            } catch (e) {}
+            } catch (e) { console.log('Reaction error:', e.message); }
 
             const body = msg.body.trim();
             const command = body.split(' ')[0].toLowerCase();
@@ -274,10 +286,25 @@ const startBot = async () => {
 
             // 2. STICKER
             else if (command === '.sticker' || command === '.s') {
-                let media = msg.hasMedia ? await msg.downloadMedia() : (msg.hasQuotedMsg ? await (await msg.getQuotedMessage()).downloadMedia() : null);
+                let media = null;
+                if (msg.hasMedia) {
+                    media = await msg.downloadMedia();
+                } else if (msg.hasQuotedMsg) {
+                    const quotedMsg = await msg.getQuotedMessage();
+                    if (quotedMsg.hasMedia) {
+                        media = await quotedMsg.downloadMedia();
+                    }
+                }
+                
                 if (media) {
-                    await client.sendMessage(msg.from, media, { sendMediaAsSticker: true, stickerName: NAMA_BOT, stickerAuthor: NAMA_OWNER });
-                } else { msg.reply('❌ Kirim/Reply gambar dengan caption *.sticker*'); }
+                    await client.sendMessage(msg.from, media, { 
+                        sendMediaAsSticker: true, 
+                        stickerName: NAMA_BOT, 
+                        stickerAuthor: NAMA_OWNER 
+                    });
+                } else { 
+                    msg.reply('❌ Kirim/Reply gambar dengan caption *.sticker*'); 
+                }
             }
 
             // 3. HIDE TAG
@@ -296,7 +323,16 @@ const startBot = async () => {
 
             // 4. MEME
             else if (command === '.meme') {
-                let media = msg.hasMedia ? await msg.downloadMedia() : (msg.hasQuotedMsg ? await (await msg.getQuotedMessage()).downloadMedia() : null);
+                let media = null;
+                if (msg.hasMedia) {
+                    media = await msg.downloadMedia();
+                } else if (msg.hasQuotedMsg) {
+                    const quotedMsg = await msg.getQuotedMessage();
+                    if (quotedMsg.hasMedia) {
+                        media = await quotedMsg.downloadMedia();
+                    }
+                }
+                
                 if (media && args.includes('|')) {
                     try {
                         const image = await Jimp.read(Buffer.from(media.data, 'base64'));
@@ -307,8 +343,13 @@ const startBot = async () => {
                         if(bottom) image.print(font, 0, image.bitmap.height - 80, { text: bottom.trim().toUpperCase(), alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER }, 800);
                         const buff = await image.getBufferAsync(Jimp.MIME_JPEG);
                         await client.sendMessage(msg.from, new MessageMedia('image/jpeg', buff.toString('base64')), { sendMediaAsSticker: true });
-                    } catch (e) { msg.reply('❌ Gagal edit. Format: .meme Atas|Bawah'); }
-                } else msg.reply('❌ Format: .meme Atas|Bawah');
+                    } catch (e) { 
+                        console.log('Meme error:', e.message);
+                        msg.reply('❌ Gagal edit. Format: .meme Atas|Bawah'); 
+                    }
+                } else {
+                    msg.reply('❌ Format: .meme Atas|Bawah');
+                }
             }
 
             // 5. OWNER & DONASI
@@ -323,7 +364,9 @@ const startBot = async () => {
             // 6. AI CHAT
             else {
                 const isGroup = msg.from.includes('@g.us');
-                if (!isGroup || (isGroup && msg.mentionedIds.includes(client.info.wid._serialized)) || body.startsWith('.')) {
+                const isMentioned = msg.mentionedIds && msg.mentionedIds.includes(client.info.wid._serialized);
+                
+                if (!isGroup || (isGroup && isMentioned) || body.startsWith('.')) {
                     if (body.length > 1) { 
                         const chat = await msg.getChat();
                         await chat.sendStateTyping();
@@ -334,21 +377,30 @@ const startBot = async () => {
                 }
             }
 
-        } catch (err) { console.log('Error:', err.message); }
+        } catch (err) { 
+            console.log('Message Error:', err.message); 
+        }
     });
 
     // 🗑️ ANTI-DELETE
     client.on('message_revoke_everyone', async (after, before) => {
         if (before && !before.fromMe) {
-            let media = mediaCache.get(before.id.id);
-            const contact = await before.getContact();
-            const caption = `👮 *ANTI-DELETE DETECTED*\n👤 Pelaku: @${contact.id.user}\n📝 Pesan: ${before.body}\n⏰ ${new Date().toLocaleTimeString()}`;
-            if (media) await client.sendMessage(before.from, media, { caption: caption, mentions: [contact] });
-            else client.sendMessage(before.from, caption, { mentions: [contact] });
+            try {
+                let media = mediaCache.get(before.id.id);
+                const contact = await before.getContact();
+                const caption = `👮 *ANTI-DELETE DETECTED*\n👤 Pelaku: @${contact.id.user}\n📝 Pesan: ${before.body}\n⏰ ${new Date().toLocaleTimeString()}`;
+                if (media) {
+                    await client.sendMessage(before.from, media, { caption: caption, mentions: [contact] });
+                } else {
+                    await client.sendMessage(before.from, caption, { mentions: [contact] });
+                }
+            } catch (e) {
+                console.log('Anti-delete error:', e.message);
+            }
         }
     });
 
-    // Start Server Express setelah Bot siap
+    // Start Server Express
     app.listen(PORT, () => console.log(`🚀 Dashboard siap di Port ${PORT}`));
     
     // Jalankan Bot
@@ -359,5 +411,10 @@ const startBot = async () => {
 startBot();
 
 // Handler Error Global
-process.on('uncaughtException', (err) => { console.error('⚠️ Uncaught Exception:', err); });
-process.on('unhandledRejection', (reason) => { console.error('⚠️ Unhandled Rejection:', reason); });
+process.on('uncaughtException', (err) => { 
+    console.error('⚠️ Uncaught Exception:', err); 
+});
+
+process.on('unhandledRejection', (reason) => { 
+    console.error('⚠️ Unhandled Rejection:', reason); 
+});
