@@ -48,8 +48,8 @@ function startBot(store) {
             backupSyncIntervalMs: 300000 // Backup sesi tiap 5 menit
         }),
        puppeteer: {
-            // LOGIKA BARU: Cari Chrome secara otomatis di Environment Variable Heroku
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || process.env.GOOGLE_CHROME_BIN || '/app/.apt/usr/bin/google-chrome',
+            // JANGAN TULIS MANUAL '/app/.apt/...'. Gunakan Variable ini:
+            executablePath: process.env.GOOGLE_CHROME_BIN || process.env.PUPPETEER_EXECUTABLE_PATH,
             headless: true,
             args: [
                 '--no-sandbox',
