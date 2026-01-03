@@ -47,9 +47,9 @@ function startBot(store) {
             store: store,
             backupSyncIntervalMs: 300000 // Backup sesi tiap 5 menit
         }),
-        puppeteer: {
-            // Kita paksa pakai Chrome dari Heroku
-            executablePath: '/app/.apt/usr/bin/google-chrome',
+       puppeteer: {
+            // LOGIKA BARU: Cari Chrome secara otomatis di Environment Variable Heroku
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || process.env.GOOGLE_CHROME_BIN || '/app/.apt/usr/bin/google-chrome',
             headless: true,
             args: [
                 '--no-sandbox',
