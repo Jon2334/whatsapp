@@ -48,6 +48,7 @@ function startBot(store) {
             backupSyncIntervalMs: 300000 // Backup sesi tiap 5 menit
         }),
         puppeteer: {
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || process.env.GOOGLE_CHROME_BIN,
             headless: true,
             args: [
                 '--no-sandbox',
