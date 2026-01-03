@@ -47,9 +47,9 @@ function startBot(store) {
             store: store,
             backupSyncIntervalMs: 300000 // Backup sesi tiap 5 menit
         }),
-       puppeteer: {
-            // JANGAN TULIS MANUAL '/app/.apt/...'. Gunakan Variable ini:
-            executablePath: process.env.GOOGLE_CHROME_BIN || process.env.PUPPETEER_EXECUTABLE_PATH,
+    puppeteer: {
+            // Ubah menjadi ini. Jangan pakai process.env dulu.
+            executablePath: 'google-chrome-stable',
             headless: true,
             args: [
                 '--no-sandbox',
