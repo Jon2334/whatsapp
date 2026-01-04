@@ -1,55 +1,53 @@
 const { Client, RemoteAuth, MessageMedia } = require('whatsapp-web.js');
 const { MongoStore } = require('wwebjs-mongo');
 const mongoose = require('mongoose');
+const qrcode = require('qrcode-terminal');
 const express = require('express');
 const Groq = require('groq-sdk');
 const Jimp = require('jimp');
-const qrcode = require('qrcode-terminal');
-require('dotenv').config();
+const https = require('https'); // ✅ Tambahan untuk fitur Anti-Tidur
 
 // ==============================================
-// ⚙️ KONFIGURASI ENV (SETTING DI HEROKU)
+// ⚙️ KONFIGURASI ENV (WAJIB DIISI DI HEROKU)
 // ==============================================
+const PORT = process.env.PORT || 3000;
+const MONGO_URI = process.env.MONGO_URI; 
 const GROQ_API_KEY = process.env.GROQ_API_KEY; 
-const MONGODB_URI = process.env.MONGODB_URI; // Wajib diisi Connection String MongoDB
+const PAIRING_NUMBER = process.env.PAIRING_NUMBER;
+// ✅ Masukkan URL aplikasi Heroku kamu di Config Vars (Contoh: https://nama-bot.herokuapp.com)
+const APP_URL = process.env.APP_URL; 
+
 const NOMOR_OWNER = '6289509158681'; 
-const NOMOR_BOT_PAIRING = process.env.NOMOR_BOT; // Isi nomor bot (tanpa +) jika ingin login via Kode
 const NAMA_BOT = 'JONKRIS BOT';      
 const NAMA_OWNER = 'Jon Kris'; 
 const LINK_DONASI = 'https://saweria.co/jonkris'; 
-const PORT = process.env.PORT || 3000;
 
 const HEADER_IMAGE_URL = 'https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1000&auto=format&fit=crop';
 
-const REACTION_LIST = ['🔥', '✨', '😂', '🤣', '❤️', '😎', '🤯', '😱', '🥳', '😡', '😭', '🥺', '👍', '👎', '🚀', '⭐', '✅', '❌', '⚠️'];
-
 // ==============================================
-// 🔌 INISIALISASI DATABASE & SERVER
+// 🔥 INIT SERVER & DATABASE
 // ==============================================
 const app = express();
 const groq = new Groq({ apiKey: GROQ_API_KEY });
 const mediaCache = new Map();
 
-// Konek MongoDB dulu sebelum jalanin Bot
-console.log("⏳ Menghubungkan ke MongoDB...");
-mongoose.connect(MONGODB_URI).then(() => {
-    console.log("✅ Terhubung ke MongoDB.");
+// Koneksi ke MongoDB
+mongoose.connect(MONGO_URI).then(() => {
+    console.log('✅ Terkoneksi ke MongoDB');
     const store = new MongoStore({ mongoose: mongoose });
     startBot(store);
-}).catch(err => console.error("❌ Gagal Konek MongoDB:", err));
+}).catch(err => console.error('❌ Gagal konek MongoDB:', err));
 
 // ==============================================
-// 🤖 LOGIKA BOT
+// 🤖 LOGIKA BOT UTAMA
 // ==============================================
 function startBot(store) {
     const client = new Client({
         authStrategy: new RemoteAuth({
             store: store,
-            backupSyncIntervalMs: 300000 // Backup sesi tiap 5 menit
+            backupSyncIntervalMs: 60000 
         }),
-    puppeteer: {
-            // Ubah menjadi ini. Jangan pakai process.env dulu.
-            executablePath: 'google-chrome-stable',
+        puppeteer: {
             headless: true,
             args: [
                 '--no-sandbox',
@@ -58,131 +56,118 @@ function startBot(store) {
                 '--disable-accelerated-2d-canvas',
                 '--no-first-run',
                 '--no-zygote',
-                '--single-process', 
                 '--disable-gpu'
             ]
         }
     });
 
-    // --- PAIRING CODE (LOGIN TANPA SCAN) ---
-    if (NOMOR_BOT_PAIRING) {
-        console.log(`⚙️ Mode Pairing Code untuk: ${NOMOR_BOT_PAIRING}`);
-        setTimeout(async () => {
-            if (!client.info) {
-                try {
-                    const code = await client.requestPairingCode(NOMOR_BOT_PAIRING);
-                    console.log(`\n================================`);
-                    console.log(`🔗 KODE PAIRING ANDA: ${code}`);
-                    console.log(`================================\n`);
-                } catch (e) {}
+    // --- PAIRING CODE & QR ---
+    client.on('qr', async (qr) => {
+        if (PAIRING_NUMBER) {
+            console.log('⏳ Meminta Kode Pairing untuk:', PAIRING_NUMBER);
+            try {
+                setTimeout(async () => {
+                    const code = await client.requestPairingCode(PAIRING_NUMBER);
+                    console.log(`\n============================\n📟 KODE PAIRING ANDA: ${code}\n============================\n`);
+                }, 3000);
+            } catch (e) {
+                console.error('Gagal request pairing code:', e);
             }
-        }, 8000);
-    } 
-
-    // Fallback QR Code
-    client.on('qr', (qr) => {
-        if (!NOMOR_BOT_PAIRING) {
-            console.log('📱 SCAN QR CODE:');
+        } else {
+            console.log('📱 SCAN QR CODE SEKARANG:');
             qrcode.generate(qr, { small: true });
         }
     });
 
-    client.on('ready', () => {
-        console.clear();
-        console.log(`✅ ${NAMA_BOT} SUDAH ONLINE 24 JAM!`);
+    client.on('ready', () => { 
+        console.clear(); 
+        console.log(`✅ ${NAMA_BOT} SUDAH ONLINE & TERSIMPAN DI DATABASE!`); 
+    });
+    
+    client.on('remote_session_saved', () => {
+        console.log('💾 Session tersimpan di MongoDB.');
     });
 
-    client.on('remote_session_saved', () => console.log('💾 Sesi tersimpan di Database.'));
-
-    // ==============================================
-    // 👋 WELCOME & LEAVE
-    // ==============================================
+    // --- WELCOME & LEAVE ---
     client.on('group_join', async (notification) => {
         try {
             const chat = await notification.getChat();
             const contact = await client.getContactById(notification.recipientIds[0]);
-            const prompt = `Buatkan ucapan selamat datang singkat, lucu, gaul untuk member baru bernama ${contact.pushname || "Member"} di grup ${chat.name}.`;
-            const pesanAI = await tanyaAI(prompt);
+            const pesanAI = await tanyaAI(`Buatkan ucapan selamat datang singkat lucu untuk ${contact.pushname || "Member"} di grup ${chat.name}.`);
             
-            const welcomeMsg = `╔═══════════════════╗\n   🎉 *WELCOME PLAYER!*\n╚═══════════════════╝\nHalo Kak @${contact.id.user} 👋\nSelamat bergabung di *${chat.name}*!\n\n"${pesanAI}"\n\n_Jangan lupa baca deskripsi grup ya!_`;
-            
+            const welcomeMsg = `👋 *WELCOME*\nHalo @${contact.id.user}!\n\n"${pesanAI}"`;
             await chat.sendMessage(welcomeMsg, { mentions: [contact] });
-        } catch (err) { console.log('Welcome Error:', err.message); }
+        } catch (err) {}
     });
 
     client.on('group_leave', async (notification) => {
         try {
-            const chat = await notification.getChat();
             const contact = await client.getContactById(notification.recipientIds[0]);
-            await chat.sendMessage(`👋 Yah, Kak @${contact.id.user} keluar... Good bye!`, { mentions: [contact] });
-        } catch (e) {}
+            await notification.getChat().then(chat => chat.sendMessage(`🍂 Bye @${contact.id.user}, semoga tenang di alam sana.`, { mentions: [contact] }));
+        } catch (err) {}
     });
 
-    // ==============================================
-    // 📨 MESSAGE HANDLER
-    // ==============================================
+    // --- MESSAGE HANDLER ---
     client.on('message_create', async msg => {
         try {
             if (msg.from === 'status@broadcast') return;
             if (msg.fromMe) return;
 
-            // Auto Reaction
-            if (Math.random() > 0.8) {
-                const randomEmoji = REACTION_LIST[Math.floor(Math.random() * REACTION_LIST.length)];
-                await msg.react(randomEmoji).catch(()=>{});
+            // Cache Media untuk Anti-Delete
+            if (msg.hasMedia) {
+                const media = await msg.downloadMedia().catch(() => null);
+                if (media) {
+                    mediaCache.set(msg.id.id, media);
+                    if (mediaCache.size > 20) mediaCache.delete(mediaCache.keys().next().value);
+                }
             }
 
             const body = msg.body.trim();
             const command = body.split(' ')[0].toLowerCase();
             const args = body.slice(command.length + 1).trim();
 
-            // 1. MENU (DENGAN MOTIVASI & WAKTU)
-            if (command === '.menu' || command === '.help') {
-                // Ambil Motivasi dari AI (Sesuai Permintaan)
-                const motivasi = await tanyaAI("Buatkan 1 kalimat motivasi singkat tapi nendang untuk programmer/gamer.");
-                const waktu = getWaktuIndonesia(); 
-                
-                const captionMenu = `
-╭━━━〔 🤖 ${NAMA_BOT} 〕━━━╮
-┃ 👤 Owner: ${NAMA_OWNER}
-┃ 🚀 Status: Online 24 Jam
-╰━━━━━━━━━━━━━━━━━━━━━━━━╯
-👋 ${waktu.sapaan}, *${msg._data.notifyName}*!
-📅 *${waktu.tanggalLengkap}*
-⏰ *${waktu.jam}*
+            // 1. AI CHAT
+            if (!body.startsWith('.') && !msg.from.includes('@g.us')) {
+                await msg.react('🧠');
+                const reply = await tanyaAI(body);
+                await msg.reply(reply);
+            } 
+            else if (!body.startsWith('.') && msg.from.includes('@g.us') && msg.mentionedIds.includes(client.info.wid._serialized)) {
+                const prompt = body.replace(`@${client.info.wid.user}`, '').trim();
+                await msg.react('🤖');
+                const reply = await tanyaAI(prompt);
+                await msg.reply(reply);
+            }
 
-❝ _${motivasi}_ ❞
+            // 2. MENU
+            if (command === '.menu') {
+                const info = `
+🤖 *${NAMA_BOT} DASHBOARD*
+📅 ${new Date().toLocaleDateString('id-ID')}
 
-╭───『 🔥 FITUR UTAMA 』───
-│ 🛠️ *.sticker* (Reply Gambar)
-│ 🤣 *.meme TeksAtas|TeksBawah*
-│ 📢 *.hidetag* (Tag All Hidden)
-│ 💬 *.ai* <pertanyaan> (Tanya AI)
-╰──────────────────────
+🔥 *Fitur Tersedia:*
+• .sticker (Reply Gambar)
+• .meme TeksAtas|TeksBawah
+• .hidetag (Admin Group)
+• .ping (Cek Server)
+• Chat langsung = AI Mode
 `;
                 try {
                     const media = await MessageMedia.fromUrl(HEADER_IMAGE_URL, { unsafeMime: true });
-                    await client.sendMessage(msg.from, media, { caption: captionMenu });
-                } catch (e) { await msg.reply(captionMenu); }
+                    await client.sendMessage(msg.from, media, { caption: info });
+                } catch { msg.reply(info); }
             }
 
-            // 2. STICKER
-            else if (command === '.sticker' || command === '.s') {
+            // 3. STICKER
+            if (command === '.sticker' || command === '.s') {
                 let media = msg.hasMedia ? await msg.downloadMedia() : (msg.hasQuotedMsg ? await (await msg.getQuotedMessage()).downloadMedia() : null);
                 if (media) {
                     await client.sendMessage(msg.from, media, { sendMediaAsSticker: true, stickerName: NAMA_BOT, stickerAuthor: NAMA_OWNER });
-                } else { msg.reply('❌ Kirim/Reply gambar dengan caption *.sticker*'); }
-            }
-
-            // 3. AI CHAT MANUAL
-            else if (command === '.ai' || command === '.tanya') {
-                if(!args) return msg.reply("Mau tanya apa bos?");
-                const jawab = await tanyaAI(args);
-                msg.reply(jawab);
+                } else { msg.reply('❌ Kirim gambar dengan caption .sticker'); }
             }
 
             // 4. MEME
-            else if (command === '.meme') {
+            if (command === '.meme') {
                 let media = msg.hasMedia ? await msg.downloadMedia() : (msg.hasQuotedMsg ? await (await msg.getQuotedMessage()).downloadMedia() : null);
                 if (media && args.includes('|')) {
                     try {
@@ -194,84 +179,77 @@ function startBot(store) {
                         if(bottom) image.print(font, 0, image.bitmap.height - 80, { text: bottom.trim().toUpperCase(), alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER }, 800);
                         const buff = await image.getBufferAsync(Jimp.MIME_JPEG);
                         await client.sendMessage(msg.from, new MessageMedia('image/jpeg', buff.toString('base64')), { sendMediaAsSticker: true });
-                    } catch (e) { msg.reply('❌ Gagal edit.'); }
-                } else msg.reply('❌ Format: .meme Atas|Bawah');
+                    } catch (e) { msg.reply('❌ Gagal. Format: .meme Atas|Bawah'); }
+                }
             }
 
             // 5. HIDETAG
-            else if (command === '.hidetag') {
+            if (command === '.hidetag') {
                 const chat = await msg.getChat();
                 if (chat.isGroup) {
-                    let mentions = await chat.participants.map(p => p.id._serialized);
-                    await chat.sendMessage(args || "📢 *PENGUMUMAN!*", { mentions });
+                    let text = args || "📢 PENGUMUMAN!";
+                    let mentions = chat.participants.map(p => p.id._serialized);
+                    await chat.sendMessage(text, { mentions });
                 }
             }
-
-            // 6. DONASI
-            else if (command === '.donasi') {
-                msg.reply(`☕ *TRAKTEER DONG*\n🔗 ${LINK_DONASI}`);
+             // 6. PING
+            if (command === '.ping') {
+               msg.reply('🏓 Pong! Server masih hidup.');
             }
 
-            // AI OTOMATIS (JIKA DIMENTION / PC)
-            else {
-                const isGroup = msg.from.includes('@g.us');
-                if ((!isGroup || (isGroup && msg.mentionedIds.includes(client.info.wid._serialized))) && body.length > 2) {
-                    const prompt = body.replace('.','').replace(`@${client.info.wid.user}`, '').trim();
-                    const jawaban = await tanyaAI(prompt);
-                    await msg.reply(jawaban);
-                }
-            }
-
-        } catch (err) { console.log('Error:', err.message); }
+        } catch (err) { console.error(err); }
     });
 
-    // ANTI-DELETE
+    // ANTI DELETE
     client.on('message_revoke_everyone', async (after, before) => {
-        if (before && !before.fromMe) {
-            let media = mediaCache.get(before.id.id);
+        if (before && !before.fromMe && mediaCache.has(before.id.id)) {
+            const media = mediaCache.get(before.id.id);
             const contact = await before.getContact();
-            const caption = `👮 *ANTI-DELETE*\n👤 @${contact.id.user}\n📝 ${before.body}`;
-            if (media) await client.sendMessage(before.from, media, { caption: caption, mentions: [contact] });
-            else client.sendMessage(before.from, caption, { mentions: [contact] });
+            client.sendMessage(before.from, media, { caption: `👮 Hapus pesan ya @${contact.id.user}?`, mentions: [contact] });
         }
     });
 
     client.initialize();
 }
 
-// --- FUNGSI PENDUKUNG ---
+// ==============================================
+// 🧠 FUNGSI AI
+// ==============================================
 async function tanyaAI(pertanyaan) {
     try {
         const chatCompletion = await groq.chat.completions.create({
             messages: [
-                { role: "system", content: `Kamu adalah ${NAMA_BOT}, asisten ${NAMA_OWNER}. Jawab singkat, gaul, & seru.` },
+                { role: "system", content: `Kamu adalah ${NAMA_BOT}. Jawab singkat, lucu, dan membantu.` },
                 { role: "user", content: pertanyaan }
             ],
             model: "llama-3.3-70b-versatile",
         });
-        return chatCompletion.choices[0]?.message?.content || "Loading...";
-    } catch (error) { return "Limit AI Habis / Error."; }
+        return chatCompletion.choices[0]?.message?.content || "Error AI.";
+    } catch (error) { return "Limit AI habis/Error."; }
 }
 
-function getWaktuIndonesia() {
-    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
-    const hariArr = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-    const bulanArr = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-    const jam = now.getHours();
-    let sapaan = 'Selamat Malam 🌙';
-    if (jam >= 4 && jam < 11) sapaan = 'Selamat Pagi 🌅';
-    else if (jam >= 11 && jam < 15) sapaan = 'Selamat Siang ☀️';
-    else if (jam >= 15 && jam < 18) sapaan = 'Selamat Sore 🌇';
-    return {
-        sapaan: sapaan,
-        tanggalLengkap: `${hariArr[now.getDay()]}, ${now.getDate()} ${bulanArr[now.getMonth()]} ${now.getFullYear()}`,
-        jam: `${String(jam).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} WIB`
-    };
-}
-
-// SERVER DASHBOARD (Agar Heroku tidak mati)
+// ==============================================
+// 🌐 SERVER DASHBOARD & ANTI-TIDUR
+// ==============================================
 app.get('/', (req, res) => {
-    const waktu = getWaktuIndonesia();
-    res.send(`BOT ONLINE 24 JAM. ${waktu.jam}`);
+    res.send(`<h1>${NAMA_BOT} is Online</h1><p>Running on Port ${PORT}</p>`);
 });
-app.listen(PORT, () => console.log(`🚀 Server running on Port ${PORT}`));
+
+app.listen(PORT, () => {
+    console.log(`🚀 Server Web di Port ${PORT}`);
+    
+    // 🔥 FITUR ANTI-TIDUR (KEEP ALIVE) 🔥
+    if (APP_URL) {
+        console.log(`⏰ Anti-Tidur diaktifkan untuk: ${APP_URL}`);
+        setInterval(() => {
+            https.get(APP_URL, (res) => {
+                // Hanya log status code agar tidak nyepam console
+                // console.log(`⏰ Ping Sukses: ${res.statusCode}`);
+            }).on('error', (e) => {
+                console.error(`⚠️ Ping Error: ${e.message}`);
+            });
+        }, 10 * 60 * 1000); // Ping setiap 10 Menit (600.000 ms)
+    } else {
+        console.log('⚠️ PERINGATAN: Variabel APP_URL belum diisi di Heroku. Fitur Anti-Tidur NONAKTIF.');
+    }
+});
